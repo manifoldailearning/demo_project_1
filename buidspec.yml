@@ -1,0 +1,44 @@
+version: 0.2
+
+env:
+  variables:
+    AWS_REGION: us-east-1
+    REPOSITORY_NAME: "enterprise-mlops-app"
+    ACCOUNT_ID: "866824485776"
+
+phases:
+  install:
+    commands:
+      - echo "Install phase"
+      - pip install -r requirements.txt
+  
+  pre_build:
+    commands:
+      - echo "Logging to Amazon ECR Public"
+      - aws ecr-public get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin public.ecr.aws
+      - echo "Logging to Amazon ECR.."
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+      - echo "Setting Up repository.."
+      - REPOSITORY_URI=$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPOSITORY_NAME
+      - export IMAGE_TAG="latest"
+      - mkdir -p model
+      - aws s3 cp $MODEL_S3_PATH ./model/iris_model.joblib
+
+  build:
+    commands:
+      - echo "Build phase"
+      - docker build -t $REPOSITORY_URI:$IMAGE_TAG .
+      - echo "Running the tests inside Docker Container.."
+      - docker run --rm $REPOSITORY_URI:$IMAGE_TAG pytest tests/
+  
+  post_build:
+    commands:
+      - echo "Push the Docker Image to Amazon ECR.."
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+      - echo "prepare artifact metadata"
+      - echo "export IMAGE_URI=$REPOSITORY_URI:$IMAGE_TAG" > artifact_metadata.json
+
+artifacts:
+  files:
+    - "**/*"
+  discard-paths: no
